@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ffmpeg-backend
+    env_file: .env
+    ports:
+      - "18000:8000"
+    volumes:
+      - ./backend:/app/backend
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: ffmpeg-frontend
+    env_file: .env
+    # command: streamlit run frontend/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "18501:8501"
+    volumes:
+      - ./frontend:/app/frontend
