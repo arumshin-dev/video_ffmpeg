@@ -1,9 +1,25 @@
+import os
 import requests
 import streamlit as st
 
-# API_BASE = "http://127.0.0.1:8000"
-# API_BASE = "http://127.0.0.1:18000"
-API_BASE = "http://backend:8000"
+# Server-side connection (Docker Network)
+API_BASE = os.getenv("INTERNAL_API_URL", "http://backend:8000")
+
+def get_public_ip():
+    try:
+        # 외부 서비스로 공인 IP 확인 (3초 타임아웃)
+        return requests.get("https://api.ipify.org", timeout=3).text.strip()
+    except Exception:
+        return "localhost"
+
+# Client-side connection (Browser)
+# 환경변수가 있으면 우선 사용, 없으면 자동 감지된 IP 사용
+_host = os.getenv("PUBLIC_API_URL")
+if not _host:
+    _ip = get_public_ip()
+    _host = f"http://{_ip}:18000"
+
+PUBLIC_API_URL = _host
 
 st.set_page_config(page_title="🍜 AI 유튜브 숏폼 광고영상 제작 프로그램", layout="centered")
 
@@ -24,7 +40,7 @@ with col1:
 
 with col2:
     price = st.text_input("가격 예: 9,900원", value="")
-    location = st.text_input("위치 예: 망원동/홍대입구", value="")
+    location = st.text_input("위치 예: 오픈 위치", value="")
     benefit = st.text_input("혜택 예: 오픈이벤트/1+1/사이드 증정", value="")
     cta = st.text_input("방문/주문 유도 문구 예: 네이버예약 ㄱㄱ?", value="")
 
@@ -69,10 +85,6 @@ if make_btn:
 
     video_url = out.get("video_url")
     if video_url:
-        # st.video(f"{API_BASE}{video_url}")
-        # st.markdown(f"[결과 영상 열기]({API_BASE}{video_url})")
-        # ip='http://[IP_ADDRESS]'
-        # ip='http://172.30.1.92:18000'
-        ip='http://localhost:18000'
-        st.video(f"{ip}{video_url}")
-        st.markdown(f"[결과 영상 열기]({ip}{video_url})")
+        full_url = f"{PUBLIC_API_URL}{video_url}"
+        st.video(full_url)
+        st.markdown(f"[결과 영상 열기]({full_url})")

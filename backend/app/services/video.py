@@ -210,7 +210,7 @@ def burn_text_overlays(
 
     # 실행 위치 상관없이 안정적으로 폰트 찾기
     fontfile_path = (_project_root() / "assets" / "fonts" / "BMHANNAPro.ttf").resolve()
-    fontfile = str(fontfile_path)  # ffmpeg에는 str로 넘거야 함
+    fontfile = str(fontfile_path)  # ffmpeg에는 str로 넘겨야 함
 
     # 자막 스타일: settings에서 읽기
     fontsize = int(getattr(settings, "CAPTION_FONT_SIZE", 104))

@@ -59,43 +59,57 @@ flowchart TB
 
 ---
 
-## 🖥️ 실행 방법 (로컬)
+## 🐳 실행 방법 (Docker 권장)
 
-1) 환경 준비
-- Python 3.9+ 권장
-- ffmpeg 설치 필요
+이 프로젝트는 Docker 환경에서 가장 안정적으로 동작합니다.
+
+### 1) 필수 준비사항
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) 설치 및 실행
+
+### 2) 설정 파일 준비
+`.env.example` 파일을 복사하여 `.env` 파일을 생성하고, 필요한 키를 입력하세요.
+
 ```bash
-brew install ffmpeg
+# Windows (PowerShell)
+copy .env.example .env
 ```
 
-2) 설치
-```bash
-python -m venv .venv
-source .venv/bin/activate
-
-pip install -r requirements.txt
+`.env` 파일 내용 예시:
+```ini
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
 ```
 
-3) .env 설정
-- OpenAI를 쓰면 카피 품질이 좋아집니다.
+### 3) 실행 (Docker Compose)
+프로젝트 루트 폴더에서 아래 명령어를 실행하세요.
+
 ```bash
-OPENAI_API_KEY=YOUR_KEY
-
-VIDEO_SECONDS=15
-VIDEO_SEGMENTS=6
-VIDEO_SIZE=1080x1920
+docker-compose up -d --build
 ```
+- 처음 실행 시 이미지를 빌드하느라 시간이 조금 걸릴 수 있습니다.
+- 실행 후 `docker-compose ps`로 상태를 확인할 수 있습니다.
 
-4) 서버 실행
-```bash
-# FastAPI
-uvicorn backend.app.main:app --reload --port 8000
-
-# Streamlit (프로젝트 구조에 맞게)
-streamlit run frontend/app.py
-```
+### 4) 접속 주소
+| 서비스 | 주소 | 설명 |
+|---|---|---|
+| **Frontend** | [http://localhost:18501](http://localhost:18501) | 사용자 UI (Streamlit) |
+| **Backend** | [http://localhost:18000/docs](http://localhost:18000/docs) | API 문서 (Swagger UI) |
 
 ---
+
+## 🛠️ 개발 환경 (로컬 실행 - 참고용)
+Docker를 사용하지 않고 직접 환경을 구성하려면 아래 과정을 따르세요. (권장하지 않음)
+
+1. **FFmpeg 설치**: 시스템에 FFmpeg가 설치되어 있어야 합니다.
+2. **가상환경 및 라이브러리 설치**:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # Windows: .venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+3. **서버 실행**:
+    - Backend: `uvicorn backend.app.main:app --reload --port 8000`
+    - Frontend: `streamlit run frontend/app.py --server.port 8501`
 
 ## 🎥 영상 생성 흐름(코드 관점)
 
