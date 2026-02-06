@@ -103,7 +103,7 @@ def _openai_tts(text: str, out_mp3: Path) -> Optional[Path]:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "gpt-4o-mini-tts",
+        "model": "tts-1",
         "voice": settings.OPENAI_TTS_VOICE,
         "input": text,
         "format": "mp3",
@@ -119,25 +119,58 @@ def _openai_tts(text: str, out_mp3: Path) -> Optional[Path]:
     return out_mp3
 
 
+def _gtts_synthesize(text: str, out_mp3: Path) -> Optional[Path]:
+    """Google TTS (무료/키 불필요)"""
+    if not text.strip():
+        return None
+        
+    out_mp3.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from gtts import gTTS
+        tts = gTTS(text=text, lang='ko')
+        tts.save(str(out_mp3))
+        return out_mp3
+    except Exception as e:
+        logger.warning("gTTS 실패: %s", e)
+        return None
+
 def synthesize_voice(text: str, out_mp3: Path) -> Optional[Path]:
     """
     텍스트 -> 음성(mp3)
 
     동작 규칙
     1) OPENAI_API_KEY가 있으면 OpenAI TTS 사용
-    2) 없으면 macOS say로 fallback (맥이 아니면 None)
+    2) 없으면 macOS say로 fallback
+    3) 그것도 안되면 gTTS (Linux/Docker 등)
     """
+    # 1. OpenAI TTS 시도
     if settings.OPENAI_API_KEY:
         try:
+            logger.info("OpenAI TTS 시도... (len=%d)", len(text))
             return _openai_tts(text, out_mp3)
         except Exception as e:
-            logger.warning("OpenAI TTS 실패. local TTS로 fallback: %s", e)
+            logger.warning("OpenAI TTS 실패. 상세 에러: %s. Fallback 시도...", e)
+    else:
+        logger.info("OPENAI_API_KEY 없음 -> OpenAI TTS 스킵")
 
+    # 2. macOS say 시도
     if platform.system() == "Darwin":
-        return _macos_say(text, out_mp3)
+        logger.info("macOS say 시도...")
+        res = _macos_say(text, out_mp3)
+        if res:
+            return res
+        logger.warning("macOS say 실패/불가")
+    else:
+        logger.debug("OS가 Darwin이 아님(%s) -> macOS say 스킵", platform.system())
 
-    # 다른 OS는 MVP 범위 밖: 음성 없이 진행
-    logger.info("OPENAI_API_KEY가 없고 macOS도 아니어서 TTS를 스킵합니다(무음으로 진행).")
+    # 3. gTTS (Google TTS) 시도
+    logger.info("gTTS(Google) 시도...")
+    res = _gtts_synthesize(text, out_mp3)
+    if res:
+        logger.info("gTTS 성공")
+        return res
+    
+    logger.error("모든 TTS 수단 실패 (OpenAI X, macOS X, gTTS X)")
     return None
 
 
@@ -169,9 +202,9 @@ def _postprocess_voice(in_mp3: Path, out_mp3: Path, speed: float = 1.10) -> Path
     speed = max(0.8, min(1.4, float(speed)))
 
     af = ",".join([
-        # 앞/뒤 무음 제거(너무 세게 자르면 발음 끊김 → threshold는 -40dB 근처 추천)
-        "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-40dB:"
-        "stop_periods=1:stop_duration=0.05:stop_threshold=-40dB",
+        # 앞/뒤 무음 제거 (0.05 -> 0.1로 완화해서 단어 짤림 방지)
+        "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-40dB:"
+        "stop_periods=1:stop_duration=0.1:stop_threshold=-40dB",
         # 템포 살짝 업(체감 액션감)
         f"atempo={speed}",
         # 음량/다이내믹 정리 (목소리 또렷)
@@ -203,6 +236,9 @@ def synthesize_voice_lines(
     parts: List[Path] = []
     durs: List[float] = []
 
+    # OpenAI TTS 실패 시, 이후 줄들은 바로 스킵하기 위한 플래그
+    disable_openai_for_this_batch = False
+
     for i, line in enumerate(lines):
         line = (line or "").strip()
         if not line:
@@ -212,8 +248,55 @@ def synthesize_voice_lines(
         part = out_dir / f"line_{i:02d}.mp3"
 
         try:
-            # 1) TTS 생성
-            tts_out = synthesize_voice(line, raw)
+            # 1) TTS 생성 (Circuit Breaker 적용)
+            # 만약 이전에 실패했다면, synthesize_voice 내부가 아니라 여기서 이미 알고 스킵/fallback 유도 가능
+            # 하지만 synthesize_voice 함수 자체가 전역 설정을 안쓰므로, 
+            # 여기서는 "OPENAI_API_KEY가 없는 척" 호출하거나 별도 파라미터를 넘겨야 함.
+            # 가장 쉬운 건: 임시로 settings 값을 바꾸거나, synthesize_voice에 'force_disable_openai' 인자를 추가.
+            # 여기서는 간단히: synthesize_voice 내부 로직을 수정하지 않고, 호출 전에 체크.
+            
+            # (수정) synthesize_voice를 수정하는 대신, 
+            # 여기서 disable_openai_for_this_batch가 True면 -> _gtts_synthesize 바로 호출
+            is_openai_ok = (not disable_openai_for_this_batch) and bool(settings.OPENAI_API_KEY)
+            
+            tts_out = None
+            if is_openai_ok:
+                # OpenAI 시도
+                tts_out = synthesize_voice(line, raw)
+                # 만약 결과가 None이거나 실패했다면 -> disable 플래그 켜기
+                # (synthesize_voice는 실패시 내부적으로 fallback 시도하므로, 
+                #  반환값이 있으면 성공으로 간주하지만, 
+                #  그 '성공'이 gTTS에 의한 것인지 OpenAI에 의한 것인지 구분 불가.
+                #  로그를 보면 'OpenAI 실패 -> fallback -> gTTS 성공' 패턴임.
+                #  즉, synthesize_voice가 '느리게' 성공함.
+                #  따라서 '느린 성공'을 감지하려면, synthesize_voice를 쪼개서 호출해야 함.)
+                
+                # 리팩토링: synthesize_voice를 직접 부르는 대신, 단계를 쪼갬
+                # 1. OpenAI (if allowed)
+                res = None
+                try:
+                    res = _openai_tts(line, raw)
+                except Exception:
+                    # 실패 시 바로 플래그 켜고, 아래 Fallback으로 진행
+                    logger.warning("Line %d: OpenAI TTS Failed -> Disabling OpenAI for remaining lines.", i)
+                    disable_openai_for_this_batch = True
+                
+                if res:
+                    tts_out = res
+                else:
+                    disable_openai_for_this_batch = True
+                    # Fallback Logic (mac -> gtts)
+                    if platform.system() == "Darwin":
+                       tts_out = _macos_say(line, raw)
+                    
+                    if not tts_out:
+                        tts_out = _gtts_synthesize(line, raw)
+            else:
+                # OpenAI 이미 비활성화됨 -> 바로 Fallback
+                if platform.system() == "Darwin":
+                    tts_out = _macos_say(line, raw)
+                if not tts_out:
+                    tts_out = _gtts_synthesize(line, raw)
 
             # 핵심: TTS가 None이거나 파일이 안 생기면 이 줄은 스킵
             if (tts_out is None) or (not raw.exists()) or (raw.stat().st_size < 1000):
@@ -263,10 +346,10 @@ def synthesize_voice_lines(
 
     # concat은 기존 그대로
     concat_txt = out_dir / "concat.txt"
-    concat_txt.write_text(
-        "\n".join([f"file '{p.as_posix()}'" for p in parts]),
-        encoding="utf-8"
-    )
+    concat_content = "\n".join([f"file '{p.name}'" for p in parts])
+    concat_txt.write_text(concat_content, encoding="utf-8")
+    
+    logger.info("TTS Concat Content:\n%s", concat_content)
 
     voice_mp3 = out_dir / "voice.mp3"
     cmd_concat = [
@@ -276,7 +359,11 @@ def synthesize_voice_lines(
         "-codec:a", "libmp3lame", "-b:a", "192k",
         str(voice_mp3),
     ]
-    _run(cmd_concat)
+    try:
+        _run(cmd_concat)
+    except Exception as e:
+        logger.error("FFmpeg Concat Failed. cmd=%s, content=%s", cmd_concat, concat_content)
+        raise e
 
     timings: List[Tuple[float, float]] = []
     t = 0.0

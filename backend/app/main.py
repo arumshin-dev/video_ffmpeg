@@ -16,6 +16,9 @@ from pathlib import Path
 
 from backend.app.core.config import settings
 from backend.app.api.routes import router as api_router
+from backend.app.api.routes_basic import router as api_basic_router
+from backend.app.api.routes_flex import router as api_flex_router
+
 from backend.app.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +35,9 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(api_basic_router)
+app.include_router(api_flex_router)
+
 
 # 폴더가 없으면 FastAPI가 시작부터 죽기 때문에 미리 생성해둔다.
 Path(settings.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)

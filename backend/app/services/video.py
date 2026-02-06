@@ -312,11 +312,12 @@ def mix_audio(
     filter_parts: list[str] = []
     idx = 1  # 0은 video 입력
 
-    
     # Voice chain
     if has_voice:
         cmd += ["-i", str(voice_path)]
-    
+        # idx가 1인지 확인
+        logger.info("DEBUG: voice input index = %d, path=%s", idx, voice_path)
+        
         filter_parts.append(
             f"[{idx}:a]"
             f"volume=1.0,"
@@ -327,11 +328,11 @@ def mix_audio(
         )
         idx += 1
 
-    
     # BGM chain
     if has_bgm:
         cmd += ["-stream_loop", "-1", "-i", str(bgm_path)]
-        # bgm 볼륨은 덕킹 전 기준값. 너무 크면 덕킹해도 거슬림.
+        logger.info("DEBUG: bgm input index = %d, path=%s", idx, bgm_path)
+        
         filter_parts.append(
             f"[{idx}:a]"
             f"volume=0.22,"
@@ -341,32 +342,14 @@ def mix_audio(
         )
         idx += 1
 
-    
     # Mix / Ducking
     if has_voice and has_bgm:
-        # 핵심: sidechaincompress
-        # 파라미터 감각:
-        # - threshold: 덕킹 시작 기준(낮을수록 자주 덕킹)
-        # - ratio: 눌리는 강도(10~20이면 광고 느낌으로 확실함)
-        # - attack: 내려가는 속도(빠를수록 '딱' 내려감)
-        # - release: 다시 올라오는 속도(너무 짧으면 펌핑, 너무 길면 답답)
+        # 간단한 mix로 변경 (ducking 로직이 복잡해서 에러 가능성 높음)
+        # BGM 소리 줄이고 + Voice 합치기
+        # 간단한 mix로 변경 (ducking 로직이 복잡해서 에러 가능성 높음)
+        # BGM 소리 줄이고 + Voice 합치기 (BGM 볼륨은 앞 단계에서 이미 0.22로 줄어있음)
         filter_parts.append(
-            "[a_bgm][a_voice]"
-            "sidechaincompress="
-            "threshold=0.035:"
-            "ratio=16:"
-            "attack=10:"
-            "release=250:"
-            "makeup=1"
-            "[a_bgm_duck]"
-        )
-
-        # 덕킹된 bgm + voice 합치기
-        filter_parts.append(
-            "[a_voice][a_bgm_duck]"
-            "amix=inputs=2:duration=longest:dropout_transition=2,"
-            f"atrim=0:{total},asetpts=N/SR/TB"
-            "[a_out]"
+            f"[a_voice][a_bgm]amix=inputs=2:duration=first:dropout_transition=2[a_out]"
         )
 
     elif has_voice and not has_bgm:
@@ -375,8 +358,12 @@ def mix_audio(
     elif has_bgm and not has_voice:
         filter_parts.append("[a_bgm]anull[a_out]")
 
+    # 디버깅용 로그
+    full_filter = ";".join(filter_parts)
+    logger.info("DEBUG: mix_audio filter_complex=%s", full_filter)
+
     cmd += [
-        "-filter_complex", ";".join(filter_parts),
+        "-filter_complex", full_filter,
         "-map", "0:v:0",
         "-map", "[a_out]",
         "-c:v", "libx264",

@@ -6,3 +6,4 @@ requests
 pydantic-settings
 numpy
 opencv-python-headless
+gTTS
