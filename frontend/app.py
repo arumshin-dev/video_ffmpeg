@@ -5,19 +5,12 @@ import streamlit as st
 # Server-side connection (Docker Network)
 API_BASE = os.getenv("INTERNAL_API_URL", "http://backend:8000")
 
-def get_public_ip():
-    try:
-        # 외부 서비스로 공인 IP 확인 (3초 타임아웃)
-        return requests.get("https://api.ipify.org", timeout=3).text.strip()
-    except Exception:
-        return "localhost"
-
 # Client-side connection (Browser)
-# 환경변수가 있으면 우선 사용, 없으면 자동 감지된 IP 사용
+# 환경변수가 있으면 우선 사용, 없으면 localhost 기본값
 _host = os.getenv("PUBLIC_API_URL")
 if not _host:
-    _ip = get_public_ip()
-    _host = f"http://{_ip}:18000"
+    # 로컬 Docker 실행이 주 목적이므로, 복잡한 공인 IP 감지보다는 localhost가 안전
+    _host = "http://localhost:18000"
 
 PUBLIC_API_URL = _host
 
