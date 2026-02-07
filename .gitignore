@@ -3,3 +3,4 @@ __pycache__/
 outputs/
 .env
 .DS_Store
+.ipynb_checkpoints/
