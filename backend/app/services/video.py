@@ -285,15 +285,16 @@ def mix_audio(
     out_video: Path,
 ) -> Path:
     """
-    최종 길이를 항상 settings.VIDEO_SECONDS로 고정 + BGM 덕킹(목소리 나오면 BGM 자동으로 내려감)
+    최종 길이를 항상 settings.VIDEO_SECONDS로 고정 + voice/BGM 믹싱
 
     - voice가 짧아도: apad + atrim으로 total 길이 맞춤
     - bgm은 loop 후 total로 자름
     - 둘 다 있으면:
-        1) voice 정리(볼륨, apad, trim)
-        2) bgm 정리(볼륨, trim)
-        3) sidechaincompress로 bgm ducking
-        4) amix로 합치고 total로 trim
+        1) voice 정리(볼륨 1.0, apad, trim)
+        2) bgm 정리(볼륨 0.22로 낮춤, trim)
+        3) amix로 합성 (voice가 우선, bgm은 배경)
+
+    Note: 현재는 단순 amix 합성. 향후 sidechaincompress ducking 구현 가능.
     """
     out_video.parent.mkdir(parents=True, exist_ok=True)
 

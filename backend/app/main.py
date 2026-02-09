@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 app = FastAPI(title="AI Shortform Ad Video Maker", version="0.1.0")
 
-# CORS: Streamlit(8502)에서 FastAPI(8000) 호출할 거라 열어둠
+# CORS: Streamlit(18501)에서 FastAPI(18000) 호출할 거라 열어둠
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

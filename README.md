@@ -105,7 +105,8 @@ Docker를 사용하지 않고 직접 환경을 구성하려면 아래 과정을 
     ```bash
     python -m venv .venv
     source .venv/bin/activate  # Windows: .venv\Scripts\activate
-    pip install -r requirements.txt
+    pip install -r backend/requirements.txt
+    pip install -r frontend/requirements.txt
     ```
 3. **서버 실행**:
     - Backend: `uvicorn backend.app.main:app --reload --port 8000`

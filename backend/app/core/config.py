@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     OUTPUT_DIR: str = "outputs"
     VIDEO_SECONDS: int = 18
     VIDEO_SIZE: str = "1080x1920"  # 9:16
-    # 기본 템포: 15초를 몇 구간으로 쪼갤지(= 자막/컷 템포)
+    # 기본 템포: VIDEO_SECONDS를 몇 구간으로 쪼갤지(= 자막/컷 템포)
     # 6이면 1컷당 2.5초라서 쇼츠 느낌이 꽤 살아납니다.
     VIDEO_SEGMENTS: int = 10
 
