@@ -4,157 +4,244 @@
 ![데모](assets/demo.gif)
 
 # 🎬 AI 유튜브 숏폼 광고영상 제작 프로그램 (MVP)
+http://34.57.239.28:18501/basic
+---
+
+소상공인(특히 오프라인 외식업)이 온라인 홍보로 전환할 때 필요한 광고 콘텐츠 제작 부담을 줄이기 위한 프로젝트입니다. 사용자가 매장/메뉴 사진을 업로드하면, LLM이 쇼츠 스타일 카피를 만들고 FFmpeg 파이프라인이 9:16 광고 영상을 자동으로 생성합니다.
+
+- ✅ 입력: 음식/매장 사진 1장 이상(실사용 권장 10~15장)
+- ✅ 출력: 9:16 MP4 (기본 18초)
+- ✅ 자막: LLM 캡션 생성 + drawtext burn-in
+- ✅ 오디오: TTS + BGM 조합(무음/BGM/TTS/BGM+TTS)
+- ✅ 편집: 생성된 자막/나레이션 문구를 미리 확인하고 수정 후 최종 렌더링
 
 ---
 
-소상공인(특히 오프라인 외식업)이 온라인 홍보로 전환할 때 필요한 광고 콘텐츠 제작 부담을 줄이기 위한 프로젝트입니다.
-사장님이 찍은 음식/매장 사진 여러 장만 업로드하면,
-생성모델이 쇼츠 문법에 맞춘 자막/카피를 만들고, 9:16(1080×1920) 유튜브·인스타 릴스용 광고 영상을 자동으로 생성합니다.
-
-- ✅ 입력: 음식/매장 사진 10~15장(권장)
-- ✅ 출력: 12~18초 광고용 mp4 (자막 burn-in 포함)
-- ✅ 자막: LLM(OpenAI)로 “쇼츠 문법” 캡션 생성 + drawtext로 영상에 삽입
-- ✅ 효과: 컷마다 줌/팬(zoompan) 모션으로 지루함 줄이기
-- ✅ 오디오(선택): TTS + BGM 믹싱(덕킹) 가능
-
----
-
-## 🧩 전체 파이프라인 로드맵
-
+## 🧩 시스템 아키텍처
 ```mermaid
 flowchart TB
-    U["사용자(사장님) 사진 업로드"]
-    S["Streamlit UI<br/>가게명/메뉴/가격/위치/혜택/톤 입력"]
-    A["FastAPI API 호출<br/>(/generate)"]
-
-    subgraph COPY["카피 생성 (LLM / Fallback)"]
-        LLM["OpenAI로 쇼츠 카피 생성<br/>(caption 6~10줄 + promo + hashtags)"]
-        FB["API 키 없으면 fallback 템플릿<br/>(쇼츠 문법 문장 뱅크)"]
+    U["사용자"]
+    FE["Frontend\nStreamlit"]
+    API["Backend\nFastAPI"]
+    subgraph COPY["Copy Layer"]
+        LLM["LLM Copy Generation\n(generate_copy)"]
+        PRE["Preview API\nPOST /api/generate-copy"]
     end
-
-    subgraph VIDEO["영상 제작 (FFmpeg)"]
-        V1["이미지 → 슬라이드쇼 생성<br/>(scale/pad/setsar + zoompan)"]
-        V2["자막 burn-in<br/>(drawtext + box + border + timing)"]
-        V3["오디오 믹싱(선택)<br/>(TTS + BGM + ducking)"]
-        OUT["최종 mp4 출력"]
+    subgraph RENDER["Render Layer"]
+        VID["Video Service\nbuild_slideshow + burn_text_overlays"]
+        AUD["Audio Service\nsynthesize_voice_lines + mix_audio"]
+        OUT["outputs/<job_id>/artifacts/final.mp4"]
     end
-
-    U --> S --> A
-    A --> COPY
-    COPY --> VIDEO
-    VIDEO --> OUT
+        U --> FE
+    FE -->|multipart form| API
+    API --> PRE --> LLM
+    API --> VID
+    API --> AUD
+    VID --> OUT
+    AUD --> OUT
+    OUT --> FE
 ```
+
+### 구성요소 책임 분리
+
+- **Frontend (Streamlit)**
+  - 이미지 업로드, 순서 정렬, 오디오 옵션 선택
+  - 자막/나레이션 초안 생성 요청 및 사용자 수정
+  - 최종 생성 요청 후 결과 영상 재생
+- **Backend (FastAPI)**
+  - 입력 검증, job 디렉토리 관리, API 응답 모델 관리
+  - LLM/TTS/FFmpeg 서비스 오케스트레이션
+- **Services**
+  - `llm.py`: 캡션/프로모션/해시태그 생성 및 fallback
+  - `video.py`: 슬라이드쇼, 자막 burn-in, 오디오 믹스
+  - `tts.py`: OpenAI/macOS/gTTS 기반 음성 생성 + 후처리
+  - `storage.py`: `outputs/<job_id>` 구조 생성
+
 ---
 
-## 📌 핵심 포인트 
-1. “영상”은 FFmpeg로 만든다
-- moviepy도 가능하지만 실제 서비스에서는 속도 / 안정성 / 호환성 면에서 FFmpeg가 훨씬 강함
-- 그래서 FFmpeg 커맨드를 조립해서 실행하는 구조로 설계했습니다.
+## 🧠 엔지니어 관점 핵심 설계 
+## 1) 왜 FFmpeg 중심인가?
+- 성능/호환성/재현성 측면에서 Python 영상 라이브러리보다 운영 안정성이 높습니다.
+- 이미지 비율이 제각각이어도 `scale + pad + setsar`로 concat 입력을 표준화할 수 있습니다.
 
-2. 자막은 libass 대신 drawtext를 기본으로
-- 환경/폰트/서버에 따라 libass가 깨지는 경우가 있어서, 항상 동작하는 drawtext로 burn-in 했습니다.
+## 2) 왜 drawtext인가?
+- libass는 환경/폰트 의존성이 높아 깨질 수 있어, MVP에서는 drawtext를 기본으로 선택했습니다.
+- 폰트 파일 경로를 명시해서 컨테이너/로컬 실행 차이를 줄였습니다.
 
-3) 쇼츠 문법(훅→감각→장점→정보→CTA)을 “구조”로 강제
-- LLM이 있어도 매번 품질이 흔들릴 수 있으니, 프롬프트에 전개 구조를 강제하고 fallback도 “문장 뱅크 + 랜덤”으로 단조로움을 줄였습니다.
+## 3) 캡션 타이밍 전략
+- 현재 기본은 “줄 수 기준 균등 분배”이며, TTS 타이밍이 있으면 해당 타이밍을 사용합니다.
+- 운영 관점에서는 “이미지 컷 전환과 자막 전환 동기화”가 가장 사용성/안정성 균형이 좋습니다.
+
+## 4) API 경계
+- `/api/generate-copy`: 자막/나레이션 초안 미리 생성
+- `/api/generate-flex`: 사용자 확정 문구(`caption_text`) 포함 최종 렌더링
+- `/api/generate-basic`, `/api/generate`: 레거시/기본 흐름
+
+---
+
+## 🔌 API 요약
+
+## POST `/api/generate-copy`
+목적: 영상 생성 전에 문구 초안 확인/수정
+
+주요 입력(Form):
+- `menu_name`(필수), `store_name`, `tone`, `price`, `location`, `benefit`, `cta`
+
+주요 출력:
+- `caption_text`: 줄바꿈 포함 전체 문구
+- `caption_lines`: 줄 배열
+- `hashtags`: 추천 해시태그
+
+## POST `/api/generate-flex`
+목적: 오디오 옵션 + 사용자 수정 문구 반영 최종 영상 생성
+
+주요 입력(Multipart):
+- `images`(필수, 다중)
+- `caption_text`(선택, 사용자가 수정한 최종 문구)
+- `use_tts`, `use_bgm` (bool)
+- `bgm_file` (선택)
+- 기타 비즈니스 필드 (`menu_name`, `tone`, ...)
+
+주요 출력:
+- `job_id`
+- `video_url` (`/outputs/<job_id>/artifacts/final.mp4`)
+- `caption_text`, `hashtags`
+
+---
+
+## 📁 디렉토리 구조
+
+```text
+backend/
+  app/
+    api/
+      routes.py
+      routes_basic.py
+      routes_flex.py
+    services/
+      llm.py
+      tts.py
+      video.py
+      storage.py
+    core/
+      config.py
+      logger.py
+frontend/
+  app.py
+  pages/
+    1_basic.py
+    2_voice.py
+    3_오디오 옵션.py
+assets/
+  bgm/
+  fonts/
+outputs/            # 런타임 생성 산출물
+docker-compose.yml
+```
 
 ---
 
 ## 🐳 실행 방법 (Docker 권장)
 
-이 프로젝트는 Docker 환경에서 가장 안정적으로 동작합니다.
+### 1) 준비
+- Docker Desktop 설치/실행
 
-### 1) 필수 준비사항
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) 설치 및 실행
-
-### 2) 설정 파일 준비
-`.env.example` 파일을 복사하여 `.env` 파일을 생성하고, 필요한 키를 입력하세요.
-
+### 2) `.env` 생성
 ```bash
-# Windows (PowerShell)
-copy .env.example .env
+cp .env.example .env
 ```
-
-`.env` 파일 내용 예시:
+예시:
 ```ini
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-### 3) 실행 (Docker Compose)
-프로젝트 루트 폴더에서 아래 명령어를 실행하세요.
+### 3) 실행
 
 ```bash
 docker-compose up -d --build
 ```
-- 처음 실행 시 이미지를 빌드하느라 시간이 조금 걸릴 수 있습니다.
-- 실행 후 `docker-compose ps`로 상태를 확인할 수 있습니다.
 
-### 4) 접속 주소
+### 4) 접속 
 | 서비스 | 주소 | 설명 |
 |---|---|---|
-| **Frontend** | [http://localhost:18501](http://localhost:18501) | 사용자 UI (Streamlit) |
-| **Backend** | [http://localhost:18000/docs](http://localhost:18000/docs) | API 문서 (Swagger UI) |
+| Frontend | http://localhost:18501 | Streamlit UI |
+| Backend Docs | http://localhost:18000/docs | FastAPI Swagger |
 
 ---
 
-## 🛠️ 개발 환경 (로컬 실행 - 참고용)
-Docker를 사용하지 않고 직접 환경을 구성하려면 아래 과정을 따르세요. (권장하지 않음)
+## 🛠️ 로컬 개발 실행 (참고)
 
-1. **FFmpeg 설치**: 시스템에 FFmpeg가 설치되어 있어야 합니다.
-2. **가상환경 및 라이브러리 설치**:
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # Windows: .venv\Scripts\activate
-    pip install -r backend/requirements.txt
-    pip install -r frontend/requirements.txt
-    ```
-3. **서버 실행**:
-    - Backend: `uvicorn backend.app.main:app --reload --port 8000`
-    - Frontend: `streamlit run frontend/app.py --server.port 8501`
+> 운영/재현성 기준으로 Docker 사용을 권장합니다.
 
-## 🎥 영상 생성 흐름(코드 관점)
-
-1) build_slideshow (이미지 → 무음 슬라이드쇼)
-- 여러 장의 이미지를 9:16으로 맞춤(scale/pad/setsar)
-- zoompan으로 컷마다 “줌인/줌아웃/팬” 변주
-
-2) burn_text_overlays (자막을 영상에 직접 넣기)
-- drawtext + border + shadow + box로 가독성 강화
-- timings 기반으로 구간별 자막 표시
-
-3) mix_audio (선택)
-- voice(TTS) + bgm을 합치고
-- voice가 나오는 동안 bgm이 자동으로 내려가게(sidechaincompress) 덕킹 적용
+1. FFmpeg 설치
+2. 가상환경 생성
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+```
+3. 의존성 설치
+```bash
+pip install -r backend/requirements.txt
+pip install -r frontend/requirements.txt
+```
+4. 실행
+```bash
+uvicorn backend.app.main:app --reload --port 8000
+streamlit run frontend/app.py --server.port 8501
+```
 
 ---
 
-##🧠 LLM 출력 형식
+## 🎥 렌더링 파이프라인(코드 레벨)
 
-caption_lines
-- 쇼츠 자막용 6~10줄 (짧고 리듬감 있게)
-
-promo_text
-- 인스타/유튜브 설명란용 3~5문장
-- hashtags: 5~12개
+1. **build_slideshow**
+   - 이미지들을 9:16으로 정규화 후 zoompan 모션 적용
+2. **burn_text_overlays**
+   - drawtext로 자막 burn-in (스타일/타이밍 적용)
+3. **synthesize_voice_lines (선택)**
+   - 줄 단위 TTS 생성 + 후처리 + 타이밍 계산
+4. **mix_audio (선택)**
+   - voice/bgm 조합 후 최종 mux
 
 ---
 
-## 🎛️ 추천 설정 (실사용 감각)
+## ⚙️ 현재 알려진 기술 부채 (엔지니어 체크리스트)
 
-- 사진: 10~15장
-- 영상 길이: 18초
-- 자막 줄 수: 8~10줄
-- 이유: 18초에 6줄이면 “컷 템포가 느려서” 덜 쇼츠 같고,
-- 8~10줄이면 “2초 전후 템포”로 더 쇼츠 느낌이 납니다.
+- `routes.py`, `routes_basic.py`, `routes_flex.py`에 공통 로직이 많아 리팩토링 여지 큼
+- 영상 길이/컷 길이 사용자 제어가 제한적(고정값 중심)
+- 테스트 코드 부재(유틸/라우트/서비스 단위 테스트 필요)
+- 오디오 믹싱 주석과 실제 동작 정합성 점검 필요
+
+---
+
+## 🚀 다음 단계 제안 (고도화 순서)
+
+1. 컷 단위 편집 기능
+   - 이미지별 duration 입력
+   - 컷 전환 시 자막 전환(구분자 기반 편집)
+2. 품질 안정화
+   - 테스트 추가(pytest + API contract)
+   - 공통 로직 서비스 레이어로 분리
+3. 생성형 확장
+   - 이미지 보강 컷 생성
+   - BGM 추천/생성 파이프라인 연동
+4. 광고 성능 최적화
+   - 스토리보드 기반 A/B 2~3버전 자동 생성
+   - 훅/CTA 품질 스코어링 후 재생성
 
 ---
 
 ## ⚠️ 트러블슈팅 메모
 
-1) zoompan 에러 (Undefined constant / missing '(')
-- zoompan 필터 문자열에서 d=... 같은 파라미터 조합이 깨지면 발생
-- 해결: zoompan 문자열을 “필터 전체”로 반환하기보다, zoompan=...:d=...:s=...:fps=... 형태가 정확히 이어지도록 구성해야 합니다.
+1) zoompan 에러 (`Undefined constant / missing '('`)
+- 원인: filter 문자열 조합 오류
+- 대응: `zoompan=...:d=...:s=...:fps=...` 형태를 엄격히 유지
 
-2) WEBP Exif 경고 (invalid TIFF header)
-- 일부 WEBP에 Exif가 깨져있는 경우 뜨는 경고
-- 대체로 치명적이진 않지만, 안정성을 위해 JPG/PNG로 변환하거나 pillow로 리세이브하는 전처리를 둘 수 있습니다.
+2) WEBP Exif 경고 (`invalid TIFF header`)
+- 원인: 일부 WEBP 메타데이터 손상
+- 대응: JPG/PNG 변환 또는 Pillow 리세이브 전처리
+
+3) TTS fallback 품질 편차
+- 원인: OpenAI/macOS/gTTS 실행 경로별 차이
+- 대응: 환경별 우선순위/로그 점검, backend 컨테이너에 키 주입 확인
