@@ -1,7 +1,3 @@
-✅ [데모 결과물 클릭](https://vimeo.com/1159512235?share=copy&fl=sv&fe=ci)
-
-![예시 이미지](example.png)
-![데모](assets/demo.gif)
 
 # 🎬 AI 유튜브 숏폼 광고영상 제작 프로그램 (MVP)
 ---
@@ -55,10 +51,16 @@ flowchart TB
   - `video.py`: 슬라이드쇼, 자막 burn-in, 오디오 믹스
   - `tts.py`: OpenAI/macOS/gTTS 기반 음성 생성 + 후처리
   - `storage.py`: `outputs/<job_id>` 구조 생성
+- **배포**
+  - `frontend/Dockerfile`: Frontend 컨테이너 구성
+  - `backend/Dockerfile`: Backend 컨테이너 구성
+  - `docker-compose.yml`: Docker Compose 구성
+- **Model**
+  - `llm.py`: `gpt-4o-mini`를 사용한 자막/프로모션/해시태그 생성 및 fallback
+  - `tts.py`: `tts-1`, `macOS`, `gTTS`를 사용한 TTS API 호출
 
 ---
 
-## 🧠 엔지니어 관점 핵심 설계 
 ## 1) 왜 FFmpeg 중심인가?
 - 성능/호환성/재현성 측면에서 Python 영상 라이브러리보다 운영 안정성이 높습니다.
 - 이미지 비율이 제각각이어도 `scale + pad + setsar`로 concat 입력을 표준화할 수 있습니다.
@@ -173,6 +175,10 @@ docker-compose up -d --build
 
 > 운영/재현성 기준으로 Docker 사용을 권장합니다.
 
+Docker-compose up -d --build
+
+Docker가 없으면 아래를 참고하세요.
+
 1. FFmpeg 설치
 2. 가상환경 생성
 ```bash
@@ -244,3 +250,8 @@ streamlit run frontend/app.py --server.port 8501
 3) TTS fallback 품질 편차
 - 원인: OpenAI/macOS/gTTS 실행 경로별 차이
 - 대응: 환경별 우선순위/로그 점검, backend 컨테이너에 키 주입 확인
+
+✅ [데모 결과물 클릭](https://vimeo.com/1159512235?share=copy&fl=sv&fe=ci)
+
+![예시 이미지](example.png)
+![데모](assets/demo.gif)
