@@ -16,11 +16,17 @@ class VideoAPI:
             host = "http://localhost:18000"
         self.public_api_url = host
 
-    def generate_video(self, files: List[tuple], data: Dict[str, Any]) -> Dict[str, Any]:
-        """비디오 생성을 요청하고 결과를 반환합니다."""
+    def generate_video(self, files: List[tuple], data: Dict[str, Any], endpoint: str = "/api/generate") -> Dict[str, Any]:
+        """비디오 생성을 요청하고 결과를 반환합니다.
+        
+        Args:
+            files: 전송할 파일 리스트 (이미지, BGM 등)
+            data: 전송할 텍스트 데이터
+            endpoint: API 엔드포인트 경로 (기본값: /api/generate)
+        """
         try:
             # POST 요청 전송 (최대 10분 대기)
-            r = requests.post(f"{self.api_base}/api/generate", files=files, data=data, timeout=600)
+            r = requests.post(f"{self.api_base}{endpoint}", files=files, data=data, timeout=600)
             r.raise_for_status()
             return r.json()
         except Exception as e:
